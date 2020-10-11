@@ -13,8 +13,11 @@
 ## 使用方法 
 
 ```bash
-git clone this repo # 将库下载的本地
+git clone https://github.com/Jittor/PointCloudLib.git # 将库下载的本地
 # 您需要将 ModelNet40 和 ShapeNet 数据集下载到 data_util/data/ 里面
+ModelNet40 数据集链接 ： https://shapenet.cs.stanford.edu/media/modelnet40_normal_resampled.zip 
+ShapeNet 数据集链接 ： https://shapenet.cs.stanford.edu/media/shapenet_part_seg_hdf5_data.zip 
+
 sh train_cls.sh # 点云分类的训练和测试 
 sh train_seg.sh # 点云分割的训练和测试 
 
