@@ -98,7 +98,7 @@ class PointnetModuleMSG(PointNetModuleBase):
 
 
 class PointNet2_cls(nn.Module):
-    def __init__(self, n_classes, use_xyz=True):
+    def __init__(self, n_classes=40, use_xyz=True):
         super().__init__()
 
         self.n_classes = n_classes

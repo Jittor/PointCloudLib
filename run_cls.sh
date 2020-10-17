@@ -1,1 +1,1 @@
-CUDA_VISIBLE_DEVICES=1 python train_cls.py
+CUDA_VISIBLE_DEVICES=0 python train_cls.py --model pointconv

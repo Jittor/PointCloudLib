@@ -41,7 +41,7 @@ class PointConvDensity_partseg(nn.Module):
         self.fc3 = nn.Conv1d(128, self.part_num, 1)
         self.relu = nn.ReLU() 
     
-    def execute(self, xyz):
+    def execute(self, xyz, cls_label):
         xyz = xyz.permute(0, 2, 1)
         B, _, _ = xyz.shape 
         

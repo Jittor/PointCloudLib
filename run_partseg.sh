@@ -1,2 +1,1 @@
-CUDA_VISIBLE_DEVICES=0 python train_partseg.py
-
+CUDA_VISIBLE_DEVICES=0 python train_partseg.py --model pointnet

@@ -26,6 +26,8 @@ import time
 import jittor as jt 
 from jittor import nn 
 
+import argparse
+
 jt.flags.use_cuda = 1
 
 seg_num = [4, 2, 2, 4, 4, 3, 3, 2, 4, 2, 6, 2, 3, 3, 3, 3]
@@ -34,12 +36,6 @@ index_start = [0, 4, 6, 8, 12, 16, 19, 22, 24, 28, 30, 36, 38, 41, 44, 47]
 def calculate_shape_IoU(pred_np, seg_np, label, class_choice):
     # label = label.squeeze(-1)
     shape_ious = []
-    # print (pred_np.size(), seg_np.size())
-    # print (type(label))
-    # print (len(label))
-    # print (np.max(label))
-    # print (label[0])
-    # print (label.shape, type(label))
     for shape_idx in range(seg_np.shape[0]):
         if not class_choice:
             # print (label[shape_idx][0])
@@ -75,7 +71,7 @@ def calculate_shape_IoU(pred_np, seg_np, label, class_choice):
     return shape_ious
 
 
-def train(model):
+def train(model, args):
     batch_size = 16
     train_loader = ShapeNetPart(partition='trainval', num_points=2048, class_choice=None, batch_size=batch_size, shuffle=True)
     test_loader = ShapeNetPart(partition='test', num_points=2048, class_choice=None, batch_size=batch_size, shuffle=False)
@@ -115,13 +111,13 @@ def train(model):
             for idx in range(label.shape[0]):
                 label_one_hot[idx, label.numpy()[idx,0]] = 1
             label_one_hot = jt.array(label_one_hot.astype(np.float32))
-            data = data.permute(0, 2, 1) # for pointnet it should not be committed 
+            if args.model == 'pointnet' or args.model == 'dgcnn':            
+                data = data.permute(0, 2, 1) # for pointnet it should not be committed 
             batch_size = data.size()[0]
-            # print ('input data shape')
-            # print (data.shape, label_one_hot.shape) 
-            # for pointnet b c n for pointnet2 b n c 
-            
-            seg_pred = model(data, label_one_hot)
+            if args.model == 'pointnet2':
+                seg_pred = model(data, data, label_one_hot)
+            else :
+                seg_pred = model(data, label_one_hot)
             seg_pred = seg_pred.permute(0, 2, 1)
             # print (seg_pred.size())
             # print (seg_pred.size(), seg.size())
@@ -187,9 +183,13 @@ def train(model):
             for idx in range(label.shape[0]):
                 label_one_hot[idx, label.numpy()[idx,0]] = 1
             label_one_hot = jt.array(label_one_hot.astype(np.float32))
-            data = data.permute(0, 2, 1) # for pointnet should not be commit 
+            if args.model == 'pointnet' or args.model == 'dgcnn':            
+                data = data.permute(0, 2, 1) # for pointnet it should not be committed 
             batch_size = data.size()[0]
-            seg_pred = model(data, label_one_hot)
+            if args.model == 'pointnet2':
+                seg_pred = model(data, data, label_one_hot)
+            else :
+                seg_pred = model(data, label_one_hot)
             seg_pred = seg_pred.permute(0, 2, 1)
             loss = nn.cross_entropy_loss(seg_pred.view(-1, seg_num_all), seg.view(-1,1).squeeze(-1))
             pred = jt.argmax(seg_pred, dim=2)[0]
@@ -227,10 +227,35 @@ def train(model):
 
 if __name__ == "__main__":
     # Training settings    
-    # model = PointConvDensity_partseg(part_num=50)
-    model = PointNet_partseg(part_num=50)
-    # model = DGCNN_partseg(part_num=50)
-    # model = PointCNN_partseg(part_num=50)
-    # model = PointNet2_partseg (part_num=50)
+    parser = argparse.ArgumentParser(description='Point Cloud Recognition')
+    parser.add_argument('--model', type=str, default='[pointnet]', metavar='N',
+                        choices=['pointnet', 'pointnet2', 'pointcnn', 'dgcnn', 'pointconv'],
+                        help='Model to use')
+    parser.add_argument('--batch_size', type=int, default=32, metavar='batch_size',
+                        help='Size of batch)')
+    parser.add_argument('--lr', type=float, default=0.02, metavar='LR',
+                        help='learning rate (default: 0.02)')    
+    parser.add_argument('--momentum', type=float, default=0.9, metavar='M',
+                        help='SGD momentum (default: 0.9)')
+    parser.add_argument('--num_points', type=int, default=1024,
+                        help='num of points to use')
+    parser.add_argument('--epochs', type=int, default=300, metavar='N',
+                        help='number of episode to train ')
 
-    train(model)
+    args = parser.parse_args()
+
+
+    if args.model == 'pointnet':
+        model = PointNet_partseg(part_num=50)
+    elif args.model == 'pointnet2':
+        model = PointNet2_partseg (part_num=50)
+    elif args.model == 'pointcnn':
+        model = PointCNN_partseg(part_num=50)
+    elif args.model == 'dgcnn':
+        model = DGCNN_partseg(part_num=50)
+    elif args.model == 'pointconv':
+        model = PointConvDensity_partseg(part_num=50)
+    else:
+        raise Exception("Not implemented")
+
+    train(model, args)
