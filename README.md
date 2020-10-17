@@ -12,6 +12,15 @@
 
 ## 使用方法 
 
+### 安装依赖
+
+```bash
+sudo apt install python3.7-dev libomp-dev
+sudo python3.7 -m pip install git+https://github.com/Jittor/jittor.git
+python3.7 -m pip install sklearn lmdb msgpack_numpy
+```
+### 安装点云库
+
 ```bash
 git clone https://github.com/Jittor/PointCloudLib.git # 将库下载的本地
 # 您需要将 ModelNet40 和 ShapeNet 数据集下载到 data_util/data/ 里面
@@ -78,6 +87,40 @@ msgpack_numpy
 | PointCNN    | None (No pytorch implementation)      |
 | DGCNN       | 1.05                                  |
 | PointConv   | None (No pytorch implementation)      |
+
+## 目录结构
+
+```
+.
+├── data_utils                   # 数据相关工具
+│   ├── data                     # 数据存放路径
+│   ├── modelnet40_loader.py
+│   └── shapenet_loader.py
+├── misc
+│   ├── layers.py
+│   ├── ops.py
+│   ├── pointconv_utils.py
+│   └── utils.py
+├── networks
+│   ├── cls
+│   │   ├── dgcnn.py
+│   │   ├── pointcnn.py
+│   │   ├── pointconv.py
+│   │   ├── pointnet2.py
+│   │   └── pointnet.py
+│   └── seg
+│       ├── dgcnn_partseg.py
+│       ├── pointcnn_partseg.py
+│       ├── pointconv_partseg.py
+│       ├── pointnet2_partseg.py
+│       └── pointnet_partseg.py
+
+├── README.md
+├── run_cls.sh
+├── run_partseg.sh
+├── train_cls.py
+└── train_partseg.py
+```
 
 非常欢迎您使用计图的点云库进行相关的研究，如在使用中有问题，欢迎提交 issus。
 
