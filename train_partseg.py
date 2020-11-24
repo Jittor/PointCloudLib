@@ -1,11 +1,3 @@
-#!/usr/bin/env python
-# -*- coding: utf-8 -*-
-"""
-@Author: An Tao
-@Contact: ta19@mails.tsinghua.edu.cn
-@File: main_partseg.py
-@Time: 2019/12/31 11:17 AM
-"""
 
 
 import os
