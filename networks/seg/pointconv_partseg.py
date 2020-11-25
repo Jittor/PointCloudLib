@@ -1,8 +1,4 @@
-"""
-Classification Model
-Author: Wenxuan Wu
-Date: September 2019
-"""
+
 import numpy as np
 import jittor as jt 
 from jittor import nn
