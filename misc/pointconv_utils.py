@@ -1,11 +1,4 @@
 
-"""
-Utility function for PointConv
-Originally from : https://github.com/yanx27/Pointnet_Pointnet2_pytorch/blob/master/utils.py
-Modify by Wenxuan Wu
-Date: September 2019
-"""
-
 from time import time
 import numpy as np
 import random
@@ -123,27 +116,6 @@ def farthest_point_sample(xyz, npoint):
     return centroids
 
 
-def query_ball_point(radius, nsample, xyz, new_xyz):
-    """
-    Input:
-        radius: local region radius
-        nsample: max sample number in local region
-        xyz: all points, [B, N, C]
-        new_xyz: query points, [B, S, C]
-    Return:
-        group_idx: grouped points index, [B, S, nsample]
-    """
-    device = xyz.device
-    B, N, C = xyz.shape
-    _, S, _ = new_xyz.shape
-    group_idx = torch.arange(N, dtype=torch.long).to(device).view(1, 1, N).repeat([B, S, 1])
-    sqrdists = square_distance(new_xyz, xyz)
-    group_idx[sqrdists > radius ** 2] = N
-    group_idx = group_idx.sort(dim=-1)[0][:, :, :nsample]
-    group_first = group_idx[:, :, 0].view(B, S, 1).repeat([1, 1, nsample])
-    mask = group_idx == N
-    group_idx[mask] = group_first[mask]
-    return group_idx
 
 def knn_point(nsample, xyz, new_xyz):
     """
@@ -197,54 +169,7 @@ def sample_and_group(npoint, nsample, xyz, points, density_scale = None):
         grouped_density = index_points(density_scale, idx)
         return new_xyz, new_points, grouped_xyz_norm, idx, grouped_density
 
-def sample_and_group_all(xyz, points, density_scale = None):
-    """
-    Input:
-        xyz: input points position data, [B, N, C]
-        points: input points data, [B, N, D]
-    Return:
-        new_xyz: sampled points position data, [B, 1, C]
-        new_points: sampled points data, [B, 1, N, C+D]
-    """
-    #device = xyz.device
-    B, N, C = xyz.shape
-    #new_xyz = torch.zeros(B, 1, C).to(device)
-    new_xyz = xyz.mean(dim = 1, keepdims = True)
-    grouped_xyz = xyz.reshape(B, 1, N, C) - new_xyz.reshape(B, 1, 1, C)
-    if points is not None:
-        new_points = concat([grouped_xyz, points.view(B, 1, N, -1)], dim=3)
-    else:
-        new_points = grouped_xyz
-    if density_scale is None:
-        return new_xyz, new_points, grouped_xyz
-    else:
-        grouped_density = density_scale.reshape(B, 1, N, 1)
-        return new_xyz, new_points, grouped_xyz, grouped_density
 
-def group(nsample, xyz, points):
-    """
-    Input:
-        npoint:
-        nsample:
-        xyz: input points position data, [B, N, C]
-        points: input points data, [B, N, D]
-    Return:
-        new_xyz: sampled points position data, [B, 1, C]
-        new_points: sampled points data, [B, 1, N, C+D]
-    """
-    B, N, C = xyz.shape
-    S = N
-    new_xyz = xyz
-    idx = knn_point(nsample, xyz, new_xyz)
-    grouped_xyz = index_points(xyz, idx) # [B, npoint, nsample, C]
-    grouped_xyz_norm = grouped_xyz - new_xyz.view(B, S, 1, C)
-    if points is not None:
-        grouped_points = index_points(points, idx)
-        new_points = torch.cat([grouped_xyz_norm, grouped_points], dim=-1) # [B, npoint, nsample, C+D]
-    else:
-        new_points = grouped_xyz_norm
-
-    return new_points, grouped_xyz_norm
 
 def compute_density(xyz, bandwidth):
     '''
@@ -473,7 +398,5 @@ class PointConvDensitySetAbstraction(nn.Module):
         new_xyz = new_xyz.permute(0, 2, 1)
 
         return new_xyz, new_points
-
-
 
 
