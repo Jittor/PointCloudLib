@@ -19,9 +19,8 @@ import time
 import math
 import jittor as jt
 import jittor.nn as nn
-from jittor.nn import Parameter
 from jittor.init import kaiming_uniform_
-from kernel_points import load_kernels
+from networks.cls.kernel_points import load_kernels
 
 # ----------------------------------------------------------------------------------------------------------------------
 #
@@ -162,8 +161,7 @@ class KPConv(nn.Module):
         self.offset_features = None
 
         # Initialize weights
-        self.weights = Parameter(jt.zeros((self.K, in_channels, out_channels), dtype=jt.float32),
-                                 requires_grad=True)
+        self.weights = jt.zeros((self.K, in_channels, out_channels), dtype=jt.float32) # Parameter
 
         # Initiate weights for offsets
         if deformable:
@@ -180,7 +178,7 @@ class KPConv(nn.Module):
                                       fixed_kernel_points=fixed_kernel_points,
                                       KP_influence=KP_influence,
                                       aggregation_mode=aggregation_mode)
-            self.offset_bias = Parameter(jt.zeros(self.offset_dim, dtype=jt.float32), requires_grad=True)
+            self.offset_bias = jt.zeros(self.offset_dim, dtype=jt.float32) # Parameter
 
         else:
             self.offset_dim = None
@@ -213,8 +211,7 @@ class KPConv(nn.Module):
                                       dimension=self.p_dim,
                                       fixed=self.fixed_kernel_points)
 
-        return Parameter(jt.array(K_points_numpy, dtype=jt.float32),
-                         requires_grad=False)
+        return jt.array(K_points_numpy, dtype=jt.float32) # Parameter
 
     def execute(self, q_pts, s_pts, neighb_inds, x):
 
@@ -419,7 +416,7 @@ class BatchNormBlock(nn.Module):
             self.batch_norm = nn.BatchNorm1d(in_dim, momentum=bn_momentum)
             #self.batch_norm = nn.InstanceNorm1d(in_dim, momentum=bn_momentum)
         else:
-            self.bias = Parameter(jt.zeros(in_dim, dtype=jt.float32), requires_grad=True)
+            self.bias = jt.zeros(in_dim, dtype=jt.float32) # Parameter
         return
 
     def reset_parameters(self):
