@@ -17,10 +17,10 @@
 
 import time
 import math
-import torch
-import torch.nn as nn
-from torch.nn.parameter import Parameter
-from torch.nn.init import kaiming_uniform_
+import jittor as jt
+import jittor.nn as nn
+from jittor.nn import Parameter
+from jittor.init import kaiming_uniform_
 from kernel_points import load_kernels
 
 # ----------------------------------------------------------------------------------------------------------------------
@@ -71,7 +71,7 @@ def radius_gaussian(sq_r, sig, eps=1e-9):
     :param sig: extents of gaussians [d1, d0] or [d0] or float
     :return: gaussian of sq_r [dn, ..., d1, d0]
     """
-    return torch.exp(-sq_r / (2 * sig**2 + eps))
+    return jt.exp(-sq_r / (2 * sig**2 + eps))
 
 def max_pool(x, inds):
     """
@@ -82,13 +82,13 @@ def max_pool(x, inds):
     """
 
     # Add a last row with minimum features for shadow pools
-    x = torch.cat((x, torch.zeros_like(x[:1, :])), 0)
+    x = jt.concat((x, jt.zeros_like(x[:1, :])), 0)
 
     # Get all features for each pooling location [n2, max_num, d]
     pool_features = gather(x, inds)
 
     # Pool the maximum [n2, d]
-    max_features, _ = torch.max(pool_features, 1)
+    _, max_features= jt.argmax(pool_features, 1)
     return max_features
 
 
@@ -104,15 +104,15 @@ def global_average(x, batch_lengths):
     averaged_features = []
     i0 = 0
     for b_i, length in enumerate(batch_lengths):
-
+        # length.shape: [1]
         # Average features for each batch cloud
-        averaged_features.append(torch.mean(x[i0:i0 + length], dim=0))
+        averaged_features.append(jt.mean(x[i0:i0 + length.data[0]], dim=0))
 
         # Increment for next cloud
-        i0 += length
+        i0 += length.data[0]
 
     # Average features in each batch
-    return torch.stack(averaged_features)
+    return jt.stack(averaged_features)
 
 
 # ----------------------------------------------------------------------------------------------------------------------
@@ -162,7 +162,7 @@ class KPConv(nn.Module):
         self.offset_features = None
 
         # Initialize weights
-        self.weights = Parameter(torch.zeros((self.K, in_channels, out_channels), dtype=torch.float32),
+        self.weights = Parameter(jt.zeros((self.K, in_channels, out_channels), dtype=jt.float32),
                                  requires_grad=True)
 
         # Initiate weights for offsets
@@ -180,7 +180,7 @@ class KPConv(nn.Module):
                                       fixed_kernel_points=fixed_kernel_points,
                                       KP_influence=KP_influence,
                                       aggregation_mode=aggregation_mode)
-            self.offset_bias = Parameter(torch.zeros(self.offset_dim, dtype=torch.float32), requires_grad=True)
+            self.offset_bias = Parameter(jt.zeros(self.offset_dim, dtype=jt.float32), requires_grad=True)
 
         else:
             self.offset_dim = None
@@ -213,10 +213,10 @@ class KPConv(nn.Module):
                                       dimension=self.p_dim,
                                       fixed=self.fixed_kernel_points)
 
-        return Parameter(torch.tensor(K_points_numpy, dtype=torch.float32),
+        return Parameter(jt.array(K_points_numpy, dtype=jt.float32),
                          requires_grad=False)
 
-    def forward(self, q_pts, s_pts, neighb_inds, x):
+    def execute(self, q_pts, s_pts, neighb_inds, x):
 
         ###################
         # Offset generation
@@ -234,7 +234,7 @@ class KPConv(nn.Module):
                 unscaled_offsets = unscaled_offsets.view(-1, self.K, self.p_dim)
 
                 # Get modulations
-                modulations = 2 * torch.sigmoid(self.offset_features[:, self.p_dim * self.K:])
+                modulations = 2 * jt.sigmoid(self.offset_features[:, self.p_dim * self.K:])
 
             else:
 
@@ -256,7 +256,7 @@ class KPConv(nn.Module):
         ######################
 
         # Add a fake point in the last row for shadow neighbors
-        s_pts = torch.cat((s_pts, torch.zeros_like(s_pts[:1, :]) + 1e6), 0)
+        s_pts = jt.concat((s_pts, jt.zeros_like(s_pts[:1, :]) + 1e6), 0)
 
         # Get neighbor points [n_points, n_neighbors, dim]
         neighbors = s_pts[neighb_inds, :]
@@ -272,76 +272,76 @@ class KPConv(nn.Module):
             deformed_K_points = self.kernel_points
 
         # Get all difference matrices [n_points, n_neighbors, n_kpoints, dim]
-        neighbors.unsqueeze_(2)
+        neighbors = neighbors.unsqueeze(2)
         differences = neighbors - deformed_K_points
 
         # Get the square distances [n_points, n_neighbors, n_kpoints]
-        sq_distances = torch.sum(differences ** 2, dim=3)
+        sq_distances = jt.sum(differences ** 2, dim=3)
 
         # Optimization by ignoring points outside a deformed KP range
         if self.deformable:
 
             # Save distances for loss
-            self.min_d2, _ = torch.min(sq_distances, dim=1)
+            self.min_d2, _ = jt.min(sq_distances, dim=1)
 
             # Boolean of the neighbors in range of a kernel point [n_points, n_neighbors]
-            in_range = torch.any(sq_distances < self.KP_extent ** 2, dim=2).type(torch.int32)
+            in_range = jt.any(sq_distances < self.KP_extent ** 2, dim=2).type(jt.int32)
 
             # New value of max neighbors
-            new_max_neighb = torch.max(torch.sum(in_range, dim=1))
+            new_max_neighb = jt.max(jt.sum(in_range, dim=1))
 
             # For each row of neighbors, indices of the ones that are in range [n_points, new_max_neighb]
-            neighb_row_bool, neighb_row_inds = torch.topk(in_range, new_max_neighb.item(), dim=1)
+            neighb_row_bool, neighb_row_inds = jt.topk(in_range, new_max_neighb.item(), dim=1)
 
             # Gather new neighbor indices [n_points, new_max_neighb]
             new_neighb_inds = neighb_inds.gather(1, neighb_row_inds, sparse_grad=False)
 
             # Gather new distances to KP [n_points, new_max_neighb, n_kpoints]
-            neighb_row_inds.unsqueeze_(2)
+            neighb_row_inds = neighb_row_inds.unsqueeze(2)
             neighb_row_inds = neighb_row_inds.expand(-1, -1, self.K)
             sq_distances = sq_distances.gather(1, neighb_row_inds, sparse_grad=False)
 
             # New shadow neighbors have to point to the last shadow point
             new_neighb_inds *= neighb_row_bool
-            new_neighb_inds -= (neighb_row_bool.type(torch.int64) - 1) * int(s_pts.shape[0] - 1)
+            new_neighb_inds -= (neighb_row_bool.type(jt.int64) - 1) * int(s_pts.shape[0] - 1)
         else:
             new_neighb_inds = neighb_inds
 
         # Get Kernel point influences [n_points, n_kpoints, n_neighbors]
         if self.KP_influence == 'constant':
             # Every point get an influence of 1.
-            all_weights = torch.ones_like(sq_distances)
-            all_weights = torch.transpose(all_weights, 1, 2)
+            all_weights = jt.ones_like(sq_distances)
+            all_weights = jt.transpose(all_weights, 1, 2)
 
         elif self.KP_influence == 'linear':
             # Influence decrease linearly with the distance, and get to zero when d = KP_extent.
-            all_weights = torch.clamp(1 - torch.sqrt(sq_distances) / self.KP_extent, min=0.0)
-            all_weights = torch.transpose(all_weights, 1, 2)
+            all_weights = jt.clamp(1 - jt.sqrt(sq_distances) / self.KP_extent, min_v=0.0)
+            all_weights = jt.transpose(all_weights, 1, 2)
 
         elif self.KP_influence == 'gaussian':
             # Influence in gaussian of the distance.
             sigma = self.KP_extent * 0.3
             all_weights = radius_gaussian(sq_distances, sigma)
-            all_weights = torch.transpose(all_weights, 1, 2)
+            all_weights = jt.transpose(all_weights, 1, 2)
         else:
             raise ValueError('Unknown influence function type (config.KP_influence)')
 
         # In case of closest mode, only the closest KP can influence each point
         if self.aggregation_mode == 'closest':
-            neighbors_1nn = torch.argmin(sq_distances, dim=2)
-            all_weights *= torch.transpose(nn.functional.one_hot(neighbors_1nn, self.K), 1, 2)
+            neighbors_1nn = jt.argmin(sq_distances, dim=2)
+            all_weights *= jt.transpose(nn.functional.one_hot(neighbors_1nn, self.K), 1, 2)
 
         elif self.aggregation_mode != 'sum':
             raise ValueError("Unknown convolution mode. Should be 'closest' or 'sum'")
 
         # Add a zero feature for shadow neighbors
-        x = torch.cat((x, torch.zeros_like(x[:1, :])), 0)
+        x = jt.concat((x, jt.zeros_like(x[:1, :])), 0)
 
         # Get the features of each neighborhood [n_points, n_neighbors, in_fdim]
         neighb_x = gather(x, new_neighb_inds)
 
         # Apply distance weights [n_points, n_kpoints, in_fdim]
-        weighted_features = torch.matmul(all_weights, neighb_x)
+        weighted_features = jt.matmul(all_weights, neighb_x)
 
         # Apply modulations
         if self.deformable and self.modulated:
@@ -349,10 +349,10 @@ class KPConv(nn.Module):
 
         # Apply network weights [n_kpoints, n_points, out_fdim]
         weighted_features = weighted_features.permute((1, 0, 2))
-        kernel_outputs = torch.matmul(weighted_features, self.weights)
+        kernel_outputs = jt.matmul(weighted_features, self.weights)
 
         # Convolution sum [n_points, out_fdim]
-        return torch.sum(kernel_outputs, dim=0)
+        return jt.sum(kernel_outputs, dim=0)
 
     def __repr__(self):
         return 'KPConv(radius: {:.2f}, in_feat: {:d}, out_feat: {:d})'.format(self.radius,
@@ -419,20 +419,19 @@ class BatchNormBlock(nn.Module):
             self.batch_norm = nn.BatchNorm1d(in_dim, momentum=bn_momentum)
             #self.batch_norm = nn.InstanceNorm1d(in_dim, momentum=bn_momentum)
         else:
-            self.bias = Parameter(torch.zeros(in_dim, dtype=torch.float32), requires_grad=True)
+            self.bias = Parameter(jt.zeros(in_dim, dtype=jt.float32), requires_grad=True)
         return
 
     def reset_parameters(self):
         nn.init.zeros_(self.bias)
 
-    def forward(self, x):
+    def execute(self, x):
         if self.use_bn:
-
             x = x.unsqueeze(2)
             x = x.transpose(0, 2)
             x = self.batch_norm(x)
             x = x.transpose(0, 2)
-            return x.squeeze()
+            return x.squeeze(2)
         else:
             return x + self.bias
 
@@ -466,7 +465,7 @@ class UnaryBlock(nn.Module):
             self.leaky_relu = nn.LeakyReLU(0.1)
         return
 
-    def forward(self, x, batch=None):
+    def execute(self, x, batch=None):
         x = self.mlp(x)
         x = self.batch_norm(x)
         if not self.no_relu:
@@ -522,7 +521,7 @@ class SimpleBlock(nn.Module):
 
         return
 
-    def forward(self, x, batch):
+    def execute(self, x, batch):
 
         if 'strided' in self.block_name:
             q_pts = batch.points[self.layer_ind + 1]
@@ -594,7 +593,7 @@ class ResnetBottleneckBlock(nn.Module):
 
         return
 
-    def forward(self, features, batch):
+    def execute(self, features, batch):
 
         if 'strided' in self.block_name:
             q_pts = batch.points[self.layer_ind + 1]
@@ -634,5 +633,7 @@ class GlobalAverageBlock(nn.Module):
         super(GlobalAverageBlock, self).__init__()
         return
 
-    def forward(self, x, batch):
+    def execute(self, x, batch):
+        # print(x.shape)
+        # print(batch.lengths[-1])
         return global_average(x, batch.lengths[-1])

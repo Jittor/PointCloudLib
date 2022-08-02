@@ -1,5 +1,5 @@
+import jittor as jt
 
-import torch
 class ModelNet40CustomBatch:
     """Custom batch definition with memory pinning for ModelNet40"""
 
@@ -18,57 +18,26 @@ class ModelNet40CustomBatch:
         # print("L: ", L)
         # Extract input tensors from the list of numpy array
         ind = 0
-        self.points = [torch.from_numpy(nparray) for nparray in input_list[ind:ind+L]]
+        self.points = [jt.array(nparray) for nparray in input_list[ind:ind+L]]
         # print("points:", self.points[0].shape)
         ind += L
-        self.neighbors = [torch.from_numpy(nparray) for nparray in input_list[ind:ind+L]]
+        self.neighbors = [jt.array(nparray) for nparray in input_list[ind:ind+L]]
         ind += L
-        self.pools = [torch.from_numpy(nparray) for nparray in input_list[ind:ind+L]]
+        self.pools = [jt.array(nparray) for nparray in input_list[ind:ind+L]]
         ind += L
-        self.lengths = [torch.from_numpy(nparray) for nparray in input_list[ind:ind+L]]
+        self.lengths = [jt.array(nparray) for nparray in input_list[ind:ind+L]]
         ind += L
-        self.features = torch.from_numpy(input_list[ind])
+        self.features = jt.array(input_list[ind])
         ind += 1
-        self.labels = torch.from_numpy(input_list[ind])
+        self.labels = jt.array(input_list[ind])
         ind += 1
-        self.scales = torch.from_numpy(input_list[ind])
+        self.scales = jt.array(input_list[ind])
         ind += 1
-        self.rots = torch.from_numpy(input_list[ind])
+        self.rots = jt.array(input_list[ind])
         ind += 1
-        self.model_inds = torch.from_numpy(input_list[ind])
+        self.model_inds = jt.array(input_list[ind])
         # exit(0)
         return
-
-    def pin_memory(self):
-        """
-        Manual pinning of the memory
-        """
-
-        self.points = [in_tensor.pin_memory() for in_tensor in self.points]
-        self.neighbors = [in_tensor.pin_memory() for in_tensor in self.neighbors]
-        self.pools = [in_tensor.pin_memory() for in_tensor in self.pools]
-        self.lengths = [in_tensor.pin_memory() for in_tensor in self.lengths]
-        self.features = self.features.pin_memory()
-        self.labels = self.labels.pin_memory()
-        self.scales = self.scales.pin_memory()
-        self.rots = self.rots.pin_memory()
-        self.model_inds = self.model_inds.pin_memory()
-
-        return self
-
-    def to(self, device):
-
-        self.points = [in_tensor.to(device) for in_tensor in self.points]
-        self.neighbors = [in_tensor.to(device) for in_tensor in self.neighbors]
-        self.pools = [in_tensor.to(device) for in_tensor in self.pools]
-        self.lengths = [in_tensor.to(device) for in_tensor in self.lengths]
-        self.features = self.features.to(device)
-        self.labels = self.labels.to(device)
-        self.scales = self.scales.to(device)
-        self.rots = self.rots.to(device)
-        self.model_inds = self.model_inds.to(device)
-
-        return self
 
     def unstack_points(self, layer=None):
         """Unstack the points"""
@@ -117,7 +86,7 @@ class ModelNet40CustomBatch:
                         elem[elem >= 0] -= i0
                     elif element_name == 'pools':
                         elem[elem >= self.points[layer_i].shape[0]] = -1
-                        elem[elem >= 0] -= torch.sum(self.lengths[layer_i][:b_i])
+                        elem[elem >= 0] -= jt.sum(self.lengths[layer_i][:b_i])
                     i0 += length
 
                     if to_numpy:
