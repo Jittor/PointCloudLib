@@ -7,7 +7,7 @@ from jittor import init
 from networks.cls.blocks import *
 import pickle
 from jittor_utils import auto_diff
-from networks.cls.datasets.ModelNet40 import ModelNet40CustomBatch
+from datasets.ModelNet40 import ModelNet40CustomBatch
 
 def p2p_fitting_regularizer(net):
 
@@ -125,12 +125,13 @@ class KPCNN(nn.Module):
         return
 
     def execute(self, batch):
-
+        batch = ModelNet40CustomBatch([batch])
         # Save all block operations in a list of modules
-        x = batch.features
+        x = batch.features.clone().detach()
 
         # Loop over consecutive blocks
-        for block_op in self.block_ops:
+        for i, block_op in enumerate(self.block_ops):
+            # x.sync()
             x = block_op(x, batch)
 
         # Head of network

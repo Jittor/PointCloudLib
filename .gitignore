@@ -2,3 +2,6 @@
 data
 data.zip
 *.output
+*.o
+*.so
+*.tar

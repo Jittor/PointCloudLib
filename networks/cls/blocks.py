@@ -53,6 +53,7 @@ def gather(x, idx, method=2):
             new_s[i+1] = ni
             x = x.expand(new_s)
         n = len(idx.size())
+        # print("forloop size 2:", len(x.size()[n:]))
         for i, di in enumerate(x.size()[n:]):
             idx = idx.unsqueeze(i+n)
             new_s = list(idx.size())
@@ -141,7 +142,9 @@ class KPConv(nn.Module):
         :param modulated: choose if kernel weights are modulated in addition to deformed
         """
         super(KPConv, self).__init__()
-
+        # print(kernel_size, p_dim, in_channels, out_channels, KP_extent, radius,
+        #          fixed_kernel_points, KP_influence, aggregation_mode,
+        #          deformable, modulated)
         # Save parameters
         self.K = kernel_size
         self.p_dim = p_dim
@@ -190,7 +193,6 @@ class KPConv(nn.Module):
 
         # Initialize kernel points
         self.kernel_points = self.init_KP()
-
         return
 
     def reset_parameters(self):
@@ -211,10 +213,10 @@ class KPConv(nn.Module):
                                       dimension=self.p_dim,
                                       fixed=self.fixed_kernel_points)
 
-        return jt.array(K_points_numpy, dtype=jt.float32) # Parameter
+        return jt.array(K_points_numpy, dtype=jt.float32).stop_grad() # Parameter
 
     def execute(self, q_pts, s_pts, neighb_inds, x):
-
+        # print("in: ", q_pts.shape, s_pts.shape, neighb_inds.shape, x.shape)
         ###################
         # Offset generation
         ###################
@@ -254,10 +256,8 @@ class KPConv(nn.Module):
 
         # Add a fake point in the last row for shadow neighbors
         s_pts = jt.concat((s_pts, jt.zeros_like(s_pts[:1, :]) + 1e6), 0)
-
         # Get neighbor points [n_points, n_neighbors, dim]
         neighbors = s_pts[neighb_inds, :]
-
         # Center every neighborhood
         neighbors = neighbors - q_pts.unsqueeze(1)
 
@@ -349,7 +349,9 @@ class KPConv(nn.Module):
         kernel_outputs = jt.matmul(weighted_features, self.weights)
 
         # Convolution sum [n_points, out_fdim]
-        return jt.sum(kernel_outputs, dim=0)
+        out = jt.sum(kernel_outputs, dim=0)
+        # print("out:", out.shape)
+        return out
 
     def __repr__(self):
         return 'KPConv(radius: {:.2f}, in_feat: {:d}, out_feat: {:d})'.format(self.radius,
