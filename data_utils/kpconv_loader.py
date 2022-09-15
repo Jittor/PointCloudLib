@@ -2,10 +2,45 @@ import numpy as np
 from jittor.dataset.dataset import Dataset
 import time
 import pickle
+import subprocess
+from pathlib import Path
 from os.path import exists, join
 from datasets.ModelNet40 import ModelNet40CustomBatch
 import cpp_wrappers.cpp_subsampling.grid_subsampling as cpp_subsampling
 import cpp_wrappers.cpp_neighbors.radius_neighbors as cpp_neighbors
+BASE_DIR = Path(__file__).parent
+
+def grid_subsampling(points, features=None, labels=None, sampleDl=0.1, verbose=0):
+    """
+    CPP wrapper for a grid subsampling (method = barycenter for points and features)
+    :param points: (N, 3) matrix of input points
+    :param features: optional (N, d) matrix of features (floating number)
+    :param labels: optional (N,) matrix of integer labels
+    :param sampleDl: parameter defining the size of grid voxels
+    :param verbose: 1 to display
+    :return: subsampled points, with features and/or labels depending of the input
+    """
+
+    if (features is None) and (labels is None):
+        return cpp_subsampling.subsample(points,
+                                         sampleDl=sampleDl,
+                                         verbose=verbose)
+    elif (labels is None):
+        return cpp_subsampling.subsample(points,
+                                         features=features,
+                                         sampleDl=sampleDl,
+                                         verbose=verbose)
+    elif (features is None):
+        return cpp_subsampling.subsample(points,
+                                         classes=labels,
+                                         sampleDl=sampleDl,
+                                         verbose=verbose)
+    else:
+        return cpp_subsampling.subsample(points,
+                                         features=features,
+                                         classes=labels,
+                                         sampleDl=sampleDl,
+                                         verbose=verbose)
 
 def batch_grid_subsampling(points, batches_len, features=None, labels=None,
                            sampleDl=0.1, max_p=0, verbose=0, random_grid_orient=True):
@@ -166,6 +201,26 @@ class KPConvLoader(Dataset):
         """
         This dataset is small enough to be stored in-memory, so load all point clouds here
         """
+        # Download
+        self.path = BASE_DIR / 'data' / 'modelnet40_normal_resampled'
+
+        if not self.path.exists():
+            self.path.mkdir(parents=True)
+            self.url = (
+                "https://shapenet.cs.stanford.edu/media/modelnet40_normal_resampled.zip"
+            )
+            zipfile = self.path / '..' / 'modelnet40_normal_resampled.zip'
+
+            if not zipfile.exists():
+                subprocess.check_call([
+                    'curl', self.url, '-o', str(zipfile), '-k'
+                ])
+
+            subprocess.check_call([
+                'unzip', str(zipfile), '-d', str(self.path / '..')
+            ])
+
+
 
         self.neighborhood_limits = []
         ############
@@ -221,14 +276,14 @@ class KPConvLoader(Dataset):
         self.ignored_labels = np.array([])
 
         # Dataset folder
-        self.path = '../Data/ModelNet40'
+        # self.path = '../Data/ModelNet40'
 
         # Type of task conducted on this dataset
-        self.dataset_task = 'classification'
+        self_task = 'classification'
 
         # Update number of class and data task in configuration
         config.num_classes = self.num_classes
-        config.dataset_task = self.dataset_task
+        config.dataset_task = self_task
 
         # Parameters from config
         self.config = config
@@ -274,13 +329,13 @@ class KPConvLoader(Dataset):
         # Initialize value for batch limit (max number of points per batch).
         self.batch_limit = 10000
         self.batch_list = []
-        self.calibration()
         self.prepare_batch_indices()
         self.set_attrs(
             batch_size=1,
             total_len=len(self.batch_list),
             shuffle=shuffle
         )
+        self.calibration()
 
     def __getitem__(self, index):
         ###################
@@ -575,8 +630,57 @@ class KPConvLoader(Dataset):
         # Else compute them from original points
         else:
             # Collect training file names
-            print("subsampled_clouds not loaded, exit!")
-            exit(0)
+            if self.train:
+                names = np.loadtxt(join(self.path, 'modelnet40_train.txt'), dtype=np.str)
+            else:
+                names = np.loadtxt(join(self.path, 'modelnet40_test.txt'), dtype=np.str)
+
+            # Initialize containers
+            input_points = []
+            input_normals = []
+
+            # Advanced display
+            N = len(names)
+            progress_n = 30
+            fmt_str = '[{:<' + str(progress_n) + '}] {:5.1f}%'
+
+            # Collect point clouds
+            for i, cloud_name in enumerate(names):
+
+                # Read points
+                class_folder = '_'.join(cloud_name.split('_')[:-1])
+                txt_file = join(self.path, class_folder, cloud_name) + '.txt'
+                data = np.loadtxt(txt_file, delimiter=',', dtype=np.float32)
+
+                # Subsample them
+                if self.config.first_subsampling_dl > 0:
+                    points, normals = grid_subsampling(data[:, :3],
+                                                       features=data[:, 3:],
+                                                       sampleDl=self.config.first_subsampling_dl)
+                else:
+                    points = data[:, :3]
+                    normals = data[:, 3:]
+
+                print('', end='\r')
+                print(fmt_str.format('#' * ((i * progress_n) // N), 100 * i / N), end='', flush=True)
+
+                # Add to list
+                input_points += [points]
+                input_normals += [normals]
+
+            print('', end='\r')
+            print(fmt_str.format('#' * progress_n, 100), end='', flush=True)
+            print()
+
+            # Get labels
+            label_names = ['_'.join(name.split('_')[:-1]) for name in names]
+            input_labels = np.array([self.name_to_label[name] for name in label_names])
+
+            # Save for later use
+            with open(filename, 'wb') as file:
+                pickle.dump((input_points,
+                             input_normals,
+                             input_labels), file)
 
         lengths = [p.shape[0] for p in input_points]
         sizes = [l * 4 * 6 for l in lengths]
@@ -588,7 +692,7 @@ class KPConvLoader(Dataset):
 
         return input_points, input_normals, input_labels
 
-    def calibration(self, verbose=False):
+    def calibration(self, untouched_ratio=0.9, verbose=True):
         """
         Method performing batch and neighbors calibration.
             Batch calibration: Set "batch_limit" (the maximum number of points allowed in every batch) so that the
@@ -696,8 +800,144 @@ class KPConvLoader(Dataset):
                 print('{:}\"{:s}\": {:s}{:}'.format(color, key, v, bcolors.ENDC))
 
         if redo:
-            print("Redo needed, exit!")
-            exit(0)
+            
+            ############################
+            # Neighbors calib parameters
+            ############################
+
+            # From config parameter, compute higher bound of neighbors number in a neighborhood
+            hist_n = int(np.ceil(4 / 3 * np.pi * (self.config.conv_radius + 1) ** 3))
+
+            # Histogram of neighborhood sizes
+            neighb_hists = np.zeros((self.config.num_layers, hist_n), dtype=np.int32)
+
+            ########################
+            # Batch calib parameters
+            ########################
+
+            # Estimated average batch size and target value
+            estim_b = 0
+            target_b = self.config.batch_num
+
+            # Calibration parameters
+            low_pass_T = 10
+            Kp = 100.0
+            finer = False
+
+            # Convergence parameters
+            smooth_errors = []
+            converge_threshold = 0.1
+
+            # Loop parameters
+            last_display = time.time()
+            i = 0
+            breaking = False
+
+            #####################
+            # Perform calibration
+            #####################
+
+            for epoch in range(10):
+                for batch_i, input_list in enumerate(self):
+                    batch = ModelNet40CustomBatch([input_list])
+                    # Update neighborhood histogram
+                    counts = [np.sum(neighb_mat.numpy() < neighb_mat.shape[0], axis=1) for neighb_mat in batch.neighbors]
+                    hists = [np.bincount(c, minlength=hist_n)[:hist_n] for c in counts]
+                    neighb_hists += np.vstack(hists)
+
+                    # batch length
+                    b = len(batch.labels)
+
+                    # Update estim_b (low pass filter)
+                    estim_b += (b - estim_b) / low_pass_T
+
+                    # Estimate error (noisy)
+                    error = target_b - b
+
+                    # Save smooth errors for convergene check
+                    smooth_errors.append(target_b - estim_b)
+                    if len(smooth_errors) > 10:
+                        smooth_errors = smooth_errors[1:]
+
+                    # Update batch limit with P controller
+                    self.batch_limit += Kp * error
+
+                    # finer low pass filter when closing in
+                    if not finer and np.abs(estim_b - target_b) < 1:
+                        low_pass_T = 100
+                        finer = True
+
+                    # Convergence
+                    if finer and np.max(np.abs(smooth_errors)) < converge_threshold:
+                        breaking = True
+                        break
+
+                    i += 1
+                    t = time.time()
+
+                    # Console display (only one per second)
+                    if verbose and (t - last_display) > 1.0:
+                        last_display = t
+                        message = 'Step {:5d}  estim_b ={:5.2f} batch_limit ={:7d}'
+                        print(message.format(i,
+                                             estim_b,
+                                             int(self.batch_limit)))
+
+                if breaking:
+                    break
+
+            # Use collected neighbor histogram to get neighbors limit
+            cumsum = np.cumsum(neighb_hists.T, axis=0)
+            percentiles = np.sum(cumsum < (untouched_ratio * cumsum[hist_n - 1, :]), axis=0)
+            self.neighborhood_limits = percentiles
+
+            if verbose:
+
+                # Crop histogram
+                while np.sum(neighb_hists[:, -1]) == 0:
+                    neighb_hists = neighb_hists[:, :-1]
+                hist_n = neighb_hists.shape[1]
+
+                print('\n**************************************************\n')
+                line0 = 'neighbors_num '
+                for layer in range(neighb_hists.shape[0]):
+                    line0 += '|  layer {:2d}  '.format(layer)
+                print(line0)
+                for neighb_size in range(hist_n):
+                    line0 = '     {:4d}     '.format(neighb_size)
+                    for layer in range(neighb_hists.shape[0]):
+                        if neighb_size > percentiles[layer]:
+                            color = bcolors.FAIL
+                        else:
+                            color = bcolors.OKGREEN
+                        line0 += '|{:}{:10d}{:}  '.format(color,
+                                                         neighb_hists[layer, neighb_size],
+                                                         bcolors.ENDC)
+
+                    print(line0)
+
+                print('\n**************************************************\n')
+                print('\nchosen neighbors limits: ', percentiles)
+                print()
+
+            # Save batch_limit dictionary
+            key = '{:.3f}_{:d}'.format(self.config.first_subsampling_dl,
+                                       self.config.batch_num)
+            batch_lim_dict[key] = self.batch_limit
+            with open(batch_lim_file, 'wb') as file:
+                pickle.dump(batch_lim_dict, file)
+
+            # Save neighb_limit dictionary
+            for layer_ind in range(self.config.num_layers):
+                dl = self.config.first_subsampling_dl * (2 ** layer_ind)
+                if self.config.deform_layers[layer_ind]:
+                    r = dl * self.config.deform_radius
+                else:
+                    r = dl * self.config.conv_radius
+                key = '{:.3f}_{:.3f}'.format(dl, r)
+                neighb_lim_dict[key] = self.neighborhood_limits[layer_ind]
+            with open(neighb_lim_file, 'wb') as file:
+                pickle.dump(neighb_lim_dict, file)
 
 
         print('Calibration done in {:.1f}s\n'.format(time.time() - t0))
