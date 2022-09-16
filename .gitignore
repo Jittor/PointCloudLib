@@ -5,3 +5,4 @@ data.zip
 *.o
 *.so
 *.tar
+__pycache__
