@@ -32,7 +32,7 @@ class ModelNet40(Dataset):
 
             if not zipfile.exists():
                 subprocess.check_call([
-                    'curl', self.url, '-o', str(zipfile)
+                    'curl', self.url, '-o', str(zipfile), '-k'
                 ])
 
             subprocess.check_call([
