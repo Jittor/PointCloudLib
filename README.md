@@ -9,6 +9,7 @@
 | PointCNN    | √              | √            |
 | DGCNN       | √              | √            |
 | PointConv   | √              | √            |
+| KPConv      | √              |              |
 
 ## 使用方法 
 
@@ -30,6 +31,11 @@ ShapeNet 数据集链接 ： https://shapenet.cs.stanford.edu/media/shapenet_par
 sh train_cls.sh # 点云分类的训练和测试 
 sh train_seg.sh # 点云分割的训练和测试 
 
+# 对于kpconv，需要额外执行脚本再开始训练
+cd cpp_wrappers
+bash compile_wrappers.sh
+cd ..
+python train_cls.py --model kpconv
 ```
 
 ## 所依赖的库 
@@ -57,6 +63,7 @@ msgpack_numpy
 | PointCNN    | 1024 xyz          | 92.6             |
 | DGCNN       | 1024 xyz          | 92.9             |
 | PointConv   | 1024 xyz + normal | 92.4             |
+| KPConv      | xyz + neighbors + pools + lengths + features | 92.1             |
 
 ### 分类训练时间测试
 
@@ -67,6 +74,7 @@ msgpack_numpy
 | PointCNN    | 2.41                                  |
 | DGCNN       | 1.22                                  |
 | PointConv   |                                       |
+| KPConv      |                                       |
 
 ### 分割训练效果测试
 
