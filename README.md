@@ -28,14 +28,15 @@ git clone https://github.com/Jittor/PointCloudLib.git # 将库下载的本地
 ModelNet40 数据集链接 ： https://shapenet.cs.stanford.edu/media/modelnet40_normal_resampled.zip 
 ShapeNet 数据集链接 ： https://shapenet.cs.stanford.edu/media/shapenet_part_seg_hdf5_data.zip 
 
-sh train_cls.sh # 点云分类的训练和测试 
-sh train_seg.sh # 点云分割的训练和测试 
+sh run_cls.sh # 点云分类的训练和测试（以PointNet为例） 
+sh run_seg.sh # 点云分割的训练和测试（以PointNet为例）
 
 # 对于kpconv，需要额外执行脚本再开始训练
 cd cpp_wrappers
 bash compile_wrappers.sh
 cd ..
-python train_cls.py --model kpconv
+python train_cls.py --model kpconv # kpconv训练
+python train_cls.py --model kpconv --eval # 修改train_cls.py中的chkp_path指定模型进行测试
 ```
 
 ## 所依赖的库 
@@ -63,7 +64,7 @@ msgpack_numpy
 | PointCNN    | 1024 xyz          | 92.6             |
 | DGCNN       | 1024 xyz          | 92.9             |
 | PointConv   | 1024 xyz + normal | 92.4             |
-| KPConv      | xyz + neighbors + pools + lengths + features | 92.1             |
+| KPConv      | xyz + neighbors + pools + lengths + features | 92.5             |
 
 ### 分类训练时间测试
 
@@ -130,6 +131,6 @@ msgpack_numpy
 └── train_partseg.py
 ```
 
-非常欢迎您使用计图的点云库进行相关的研究，如在使用中有问题，欢迎提交 issus。
+非常欢迎您使用计图的点云库进行相关的研究，如在使用中有问题，欢迎提交 issues。
 ## Reference code :
 https://github.com/AnTao97/dgcnn.pytorch

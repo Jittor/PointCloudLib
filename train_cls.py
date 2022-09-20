@@ -68,7 +68,6 @@ def train(net, optimizer, epoch, dataloader, args):
         else :
             output = net(pts)
 
-        # loss = nn.cross_entropy_loss(output, labels)
         loss = soft_cross_entropy_loss(output, labels)
         optimizer.step(loss) 
         pred = np.argmax(output.data, axis=1)
@@ -81,19 +80,12 @@ def train_kpconv(net, optimizer, epoch, dataloader: KPConvLoader):
     pbar = tqdm(dataloader, desc=f'Epoch {epoch} [TRAIN]')
     jt.sync_all(True)
     for input_list in pbar:
-        # optimizer.zero_grad()
         L = (len(input_list) - 5) // 4
         labels = jt.array(input_list[4 * L + 1]).squeeze(0)
-        # jt.sync_all(True)
         output = net(input_list)
-        # jt.sync_all(True)
         loss = soft_cross_entropy_loss(output, labels)
-        # jt.sync_all(True)
         optimizer.step(loss)
-        # jt.sync_all(True) 
         pred = np.argmax(output.data, axis=1)
-        # print("pred:", pred)
-        # jt.display_memory_info()
         acc = np.mean(pred == labels.data) * 100
         pbar.set_description(f'Epoch {epoch} [TRAIN] loss = {loss.data[0]:.2f}, acc = {acc:.2f}')
         # jt.display_memory_info()
@@ -148,7 +140,7 @@ def evaluate_kpconv(net, epoch, dataloader: KPConvLoader):
     return acc
 
 
-def fast_confusion(true, pred, label_values=None):
+def fast_confusion(true, pred, label_values=None): # used only by kpconv test
     """
     Fast confusion matrix (100x faster than Scikit learn). But only works if labels are la
     :param true:
@@ -235,7 +227,7 @@ def fast_confusion(true, pred, label_values=None):
         return vec_conf.reshape((num_classes, num_classes))
 
 
-def classification_test(net, test_loader: KPConvLoader, config, num_votes=100):
+def classification_test(net, test_loader: KPConvLoader, config, num_votes=100): # used only by kpconv test
     print("validation size:", config.validation_size, "batch_num:", config.batch_num)
     ############
     # Initialize
@@ -427,25 +419,14 @@ if __name__ == '__main__':
         train_dataloader = ModelNet40(n_points=n_points, batch_size=batch_size, train=True, shuffle=True)
         val_dataloader = ModelNet40(n_points=n_points, batch_size=batch_size, train=False, shuffle=False)
     else:
-        # train_dataloader = ModelNet40Dataset(cfg, train=True)
-        # val_dataloader = ModelNet40Dataset(cfg, train=False)
-        # train_sampler = ModelNet40Sampler(train_dataloader, balance_labels=True)
-        # val_sampler = ModelNet40Sampler(val_dataloader, balance_labels=True)
-        # train_sampler.calibration()
-        # val_sampler.calibration()
-        # for sampled_idx in train_sampler:
-        #     sampled_data = train_dataloader.__getitem__(sampled_idx)
-        #     net(sampled_data)
         if not args.eval:
-            train_dataloader = KPConvLoader(cfg, train=True, num_workers=4)
+            train_dataloader = KPConvLoader(cfg, train=True, num_workers=0) # you can change num_workers to speed up
         cfg.validation_size = 250
         cfg.val_batch_num = 10
         val_dataloader = KPConvLoader(cfg, train=False, num_workers=4)
         #### load model ####
         if args.eval:
             chkp_path = "/mnt/disk1/chentuo/PointNet/PointCloudLib/checkpoints/kpconv/best_chkp.tar"
-            # chkp_path = "/mnt/disk1/chentuo/PointNet/KPConv-PyTorch/results/Log_2022-08-26_07-20-52/checkpoints/best_chkp.tar"
-            # chkp_path = "/mnt/disk1/chentuo/PointNet/KPConv-PyTorch/results/Log_2022-08-04_15-17-48/checkpoints/current_chkp.tar"
             checkpoint = jt.load(chkp_path)
             net.load_state_dict(checkpoint['model_state_dict'])
             # optimizer.load_state_dict(checkpoint['optimizer_state_dict'])

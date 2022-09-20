@@ -197,6 +197,7 @@ def create_3D_rotations(axis, angle):
 
 class KPConvLoader(Dataset):
     def __init__(self, config, train: bool, use_potential=True, balance_labels=False, num_workers=4, shuffle=False):
+        self.num_workers = num_workers
         super().__init__(num_workers=num_workers)
         """
         This dataset is small enough to be stored in-memory, so load all point clouds here
@@ -329,13 +330,13 @@ class KPConvLoader(Dataset):
         # Initialize value for batch limit (max number of points per batch).
         self.batch_limit = 10000
         self.batch_list = []
+        self.calibration()
         self.prepare_batch_indices()
         self.set_attrs(
             batch_size=1,
             total_len=len(self.batch_list),
             shuffle=shuffle
         )
-        self.calibration()
 
     def __getitem__(self, index):
         ###################
@@ -700,248 +701,10 @@ class KPConvLoader(Dataset):
         Neighbors calibration: Set the "neighborhood_limits" (the maximum number of neighbors allowed in convolutions)
                                so that 90% of the neighborhoods remain untouched. There is a limit for each layer.
         """
-        
-        class bcolors:
-            HEADER = '\033[95m'
-            OKBLUE = '\033[94m'
-            OKGREEN = '\033[92m'
-            WARNING = '\033[93m'
-            FAIL = '\033[91m'
-            ENDC = '\033[0m'
-            BOLD = '\033[1m'
-            UNDERLINE = '\033[4m'
-        ##############################
-        # Previously saved calibration
-        ##############################
-
-        print('\nStarting Calibration (use verbose=True for more details)')
-        t0 = time.time()
-
-        redo = False
-
-        # Batch limit
-        # ***********
-
-        # Load batch_limit dictionary
-        batch_lim_file = join(self.path, 'batch_limits.pkl')
-        if exists(batch_lim_file):
-            with open(batch_lim_file, 'rb') as file:
-                batch_lim_dict = pickle.load(file)
-        else:
-            batch_lim_dict = {}
-
-        # Check if the batch limit associated with current parameters exists
-        key = '{:.3f}_{:d}'.format(self.config.first_subsampling_dl,
-                                   self.config.batch_num)
-        if key in batch_lim_dict:
-            self.batch_limit = batch_lim_dict[key]
-            # self.batch_limit //= 4
-            print("batch_limit: ", self.batch_limit)
-        else:
-            redo = True
-
-        if verbose:
-            print('\nPrevious calibration found:')
-            print('Check batch limit dictionary')
-            if key in batch_lim_dict:
-                color = bcolors.OKGREEN
-                v = str(int(batch_lim_dict[key]))
-            else:
-                color = bcolors.FAIL
-                v = '?'
-            print('{:}\"{:s}\": {:s}{:}'.format(color, key, v, bcolors.ENDC))
-
-        # Neighbors limit
-        # ***************
-
-        # Load neighb_limits dictionary
-        neighb_lim_file = join(self.path, 'neighbors_limits.pkl')
-        if exists(neighb_lim_file):
-            with open(neighb_lim_file, 'rb') as file:
-                neighb_lim_dict = pickle.load(file)
-        else:
-            neighb_lim_dict = {}
-
-        # Check if the limit associated with current parameters exists (for each layer)
-        neighb_limits = []
-        for layer_ind in range(self.config.num_layers):
-
-            dl = self.config.first_subsampling_dl * (2**layer_ind)
-            if self.config.deform_layers[layer_ind]:
-                r = dl * self.config.deform_radius
-            else:
-                r = dl * self.config.conv_radius
-
-            key = '{:.3f}_{:.3f}'.format(dl, r)
-            if key in neighb_lim_dict:
-                neighb_limits += [neighb_lim_dict[key]]
-
-        if len(neighb_limits) == self.config.num_layers:
-            self.neighborhood_limits = neighb_limits
-        else:
-            redo = True
-
-        if verbose:
-            print('Check neighbors limit dictionary')
-            for layer_ind in range(self.config.num_layers):
-                dl = self.config.first_subsampling_dl * (2**layer_ind)
-                if self.config.deform_layers[layer_ind]:
-                    r = dl * self.config.deform_radius
-                else:
-                    r = dl * self.config.conv_radius
-                key = '{:.3f}_{:.3f}'.format(dl, r)
-
-                if key in neighb_lim_dict:
-                    color = bcolors.OKGREEN
-                    v = str(neighb_lim_dict[key])
-                else:
-                    color = bcolors.FAIL
-                    v = '?'
-                print('{:}\"{:s}\": {:s}{:}'.format(color, key, v, bcolors.ENDC))
-
-        if redo:
-            
-            ############################
-            # Neighbors calib parameters
-            ############################
-
-            # From config parameter, compute higher bound of neighbors number in a neighborhood
-            hist_n = int(np.ceil(4 / 3 * np.pi * (self.config.conv_radius + 1) ** 3))
-
-            # Histogram of neighborhood sizes
-            neighb_hists = np.zeros((self.config.num_layers, hist_n), dtype=np.int32)
-
-            ########################
-            # Batch calib parameters
-            ########################
-
-            # Estimated average batch size and target value
-            estim_b = 0
-            target_b = self.config.batch_num
-
-            # Calibration parameters
-            low_pass_T = 10
-            Kp = 100.0
-            finer = False
-
-            # Convergence parameters
-            smooth_errors = []
-            converge_threshold = 0.1
-
-            # Loop parameters
-            last_display = time.time()
-            i = 0
-            breaking = False
-
-            #####################
-            # Perform calibration
-            #####################
-
-            for epoch in range(10):
-                for batch_i, input_list in enumerate(self):
-                    batch = ModelNet40CustomBatch([input_list])
-                    # Update neighborhood histogram
-                    counts = [np.sum(neighb_mat.numpy() < neighb_mat.shape[0], axis=1) for neighb_mat in batch.neighbors]
-                    hists = [np.bincount(c, minlength=hist_n)[:hist_n] for c in counts]
-                    neighb_hists += np.vstack(hists)
-
-                    # batch length
-                    b = len(batch.labels)
-
-                    # Update estim_b (low pass filter)
-                    estim_b += (b - estim_b) / low_pass_T
-
-                    # Estimate error (noisy)
-                    error = target_b - b
-
-                    # Save smooth errors for convergene check
-                    smooth_errors.append(target_b - estim_b)
-                    if len(smooth_errors) > 10:
-                        smooth_errors = smooth_errors[1:]
-
-                    # Update batch limit with P controller
-                    self.batch_limit += Kp * error
-
-                    # finer low pass filter when closing in
-                    if not finer and np.abs(estim_b - target_b) < 1:
-                        low_pass_T = 100
-                        finer = True
-
-                    # Convergence
-                    if finer and np.max(np.abs(smooth_errors)) < converge_threshold:
-                        breaking = True
-                        break
-
-                    i += 1
-                    t = time.time()
-
-                    # Console display (only one per second)
-                    if verbose and (t - last_display) > 1.0:
-                        last_display = t
-                        message = 'Step {:5d}  estim_b ={:5.2f} batch_limit ={:7d}'
-                        print(message.format(i,
-                                             estim_b,
-                                             int(self.batch_limit)))
-
-                if breaking:
-                    break
-
-            # Use collected neighbor histogram to get neighbors limit
-            cumsum = np.cumsum(neighb_hists.T, axis=0)
-            percentiles = np.sum(cumsum < (untouched_ratio * cumsum[hist_n - 1, :]), axis=0)
-            self.neighborhood_limits = percentiles
-
-            if verbose:
-
-                # Crop histogram
-                while np.sum(neighb_hists[:, -1]) == 0:
-                    neighb_hists = neighb_hists[:, :-1]
-                hist_n = neighb_hists.shape[1]
-
-                print('\n**************************************************\n')
-                line0 = 'neighbors_num '
-                for layer in range(neighb_hists.shape[0]):
-                    line0 += '|  layer {:2d}  '.format(layer)
-                print(line0)
-                for neighb_size in range(hist_n):
-                    line0 = '     {:4d}     '.format(neighb_size)
-                    for layer in range(neighb_hists.shape[0]):
-                        if neighb_size > percentiles[layer]:
-                            color = bcolors.FAIL
-                        else:
-                            color = bcolors.OKGREEN
-                        line0 += '|{:}{:10d}{:}  '.format(color,
-                                                         neighb_hists[layer, neighb_size],
-                                                         bcolors.ENDC)
-
-                    print(line0)
-
-                print('\n**************************************************\n')
-                print('\nchosen neighbors limits: ', percentiles)
-                print()
-
-            # Save batch_limit dictionary
-            key = '{:.3f}_{:d}'.format(self.config.first_subsampling_dl,
-                                       self.config.batch_num)
-            batch_lim_dict[key] = self.batch_limit
-            with open(batch_lim_file, 'wb') as file:
-                pickle.dump(batch_lim_dict, file)
-
-            # Save neighb_limit dictionary
-            for layer_ind in range(self.config.num_layers):
-                dl = self.config.first_subsampling_dl * (2 ** layer_ind)
-                if self.config.deform_layers[layer_ind]:
-                    r = dl * self.config.deform_radius
-                else:
-                    r = dl * self.config.conv_radius
-                key = '{:.3f}_{:.3f}'.format(dl, r)
-                neighb_lim_dict[key] = self.neighborhood_limits[layer_ind]
-            with open(neighb_lim_file, 'wb') as file:
-                pickle.dump(neighb_lim_dict, file)
-
-
-        print('Calibration done in {:.1f}s\n'.format(time.time() - t0))
+        self.batch_limit = 72400
+        self.neighborhood_limits = [22, 35, 41, 42, 37]
         return 
+
 
     def prepare_batch_indices(self):
         """
@@ -1025,6 +788,10 @@ class KPConvLoader(Dataset):
             batch_n += n
 
         self.batch_list.append(np.array(ti_list, dtype=np.int32))
+        if self.num_workers == 0:
+            self.set_attrs(
+                total_len=len(self.batch_list)
+                )
 
     def big_neighborhood_filter(self, neighbors, layer):
         """
