@@ -130,6 +130,8 @@ msgpack_numpy
 ├── train_cls.py
 └── train_partseg.py
 ```
+其他点云开源工作：
+PCT: https://github.com/MenghaoGuo/PCT
 
 非常欢迎您使用计图的点云库进行相关的研究，如在使用中有问题，欢迎提交 issues。
 ## Reference code :
